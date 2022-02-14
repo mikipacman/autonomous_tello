@@ -1,0 +1,4 @@
+djitellopy
+termcolor
+pygame
+matplotlib
