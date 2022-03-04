@@ -78,6 +78,9 @@ class Tello:
         # self.tello.set_video_fps(djitellopy.Tello.FPS_5)
 
     def get_data(self, display=True, interactive=False):
+        """Main function for reading drone's data. It also shows images seen by a drone
+        and allows user to control the drone using keyboard"""
+
         frame_read = self.tello.get_frame_read()
         state = self.tello.get_current_state()
         self.data_queue.append((frame_read, state))
@@ -103,36 +106,38 @@ class Tello:
 
         return frame_read.frame, state
 
-    def reset_velocity(self):
-        self.yaw_velocity = 0
-        self.up_down_velocity = 0
-        self.for_back_velocity = 0
-        self.left_right_velocity = 0
-
     def takeoff(self):
+        """Takeoff. Active wating allows for live view during Taking off"""
+
         if not self.is_flying:
             self.tello.send_command_without_return("takeoff")
             self.is_flying = True
             self.sleep(7)
 
     def land(self):
+        """Land. Active wating allows for live view during landing"""
+
         if self.is_flying:
             self.tello.send_command_without_return("land")
             self.is_flying = False
             self.sleep(7)
 
     def emergency(self):
+        """Shutdown all motors"""
         self.tello.emergency()
         cprint("EMERGENCY SHUTDOWN!", "red")
         self.__del__()
 
     def sleep(self, sec, interactive=False):
+        """Actively sleep. It allows viewing drone's view while sleeping"""
+
         start_time = time.time()
         while time.time() - start_time < sec:
             self.get_data(interactive=interactive)
 
     def find_any_markers(self, marker_ids, rotation):
-        # Rotate while you find any of given markers
+        """Rotate until you find any of given markers, then center it and return its ID"""
+
         assert rotation in ("clockwise", "anticlockwise")
         cmd = "cw" if rotation == "clockwise" else "ccw"
 
@@ -154,6 +159,8 @@ class Tello:
             self.tello.send_command_without_return(f"{cmd} 20")
 
     def fly_to_point_in_camera_coord(self, point, velocity=None):
+        """Fly to a point in camera coordinates system"""
+
         if not velocity:
             velocity = self.velocity
 
@@ -164,6 +171,8 @@ class Tello:
     def fly_to_point_in_marker_coord(
         self, point, marker_id, velocity=None, num_tries=100
     ):
+        """Fly to a point in marker coordinates system"""
+
         img, _ = self.get_data()
         for _ in range(num_tries):
             ret = get_marker_from_image(img, self.camera_params)
@@ -179,7 +188,12 @@ class Tello:
         raise Exception(f"Marker {marker_id} not found!")
 
     def handle_key_commands(self, key):
-        self.reset_velocity()
+        """Handle key captured by cv2 window and send commands to the drone"""
+
+        self.yaw_velocity = 0
+        self.up_down_velocity = 0
+        self.for_back_velocity = 0
+        self.left_right_velocity = 0
 
         # Up down and angle
         if key == ord("y"):

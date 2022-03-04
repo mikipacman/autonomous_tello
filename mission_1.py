@@ -1,5 +1,3 @@
-from termcolor import cprint
-
 from lib.tello_morelo import Tello
 
 # MISSION 1
@@ -17,9 +15,6 @@ def main():
             ]
         },
     )
-
-    # TODO
-    # Center to marker
 
     # usefull api funcs:
     # set_speed()
