@@ -1,4 +1,6 @@
 djitellopy
 termcolor
 pygame
+scipy
 matplotlib
+opencv-contrib-python

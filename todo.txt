@@ -1,2 +1,0 @@
-- smooth displaying of sensors
-- control panel -> setting on and off some features of program in graphicall interface

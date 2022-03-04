@@ -1,20 +1,19 @@
-from tello_morelo import Tello
-from utils import connect_to_wifi
-from termcolor import cprint 
+from lib.tello_morelo import Tello
+
 
 def main():
-    server_name = "TELLO-MORELO"
-    password = "twojastara"
-    
-    if not connect_to_wifi(server_name, password):
-        cprint(f"Failed to connect to wifi {server_name}", "red")
-        exit(1)
-    else:
-        cprint(f"Connected to {server_name}", "green")
-    
-    tello = Tello()
+    tello = Tello(
+        path_to_calibration_images="./images_for_calibration",
+        display_points_dict={
+            0: [
+                (0.1, 0.1, 0.1),
+                (0.05, 0.05, 0.05),
+            ]
+        },
+    )
+
     while True:
-        tello.get_data()
+        tello.get_data(interactive=True)
 
 
 if __name__ == "__main__":
