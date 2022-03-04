@@ -1,17 +1,11 @@
 import collections
-import enum
-import logging
 import time
-from os import wait
 
 import cv2
 import djitellopy
 import numpy as np
-from numpy.core.shape_base import stack
-from numpy.lib.function_base import select
 from termcolor import cprint
 
-from lib.camera_constants import aruco_marker_side
 from lib.utils import (FPS, color_to_rgb, connect_or_exit, draw_text,
                        get_calibration_parameters, get_marker_from_image,
                        marker_coord_to_camera_coord, rvec_to_angle,
@@ -71,6 +65,9 @@ class Tello:
         self.path_to_calibration_images = path_to_calibration_images
         if self.path_to_calibration_images:
             self.camera_params = get_calibration_parameters(path_to_calibration_images)
+
+        # Marker detection params
+        self.marker_id_to_corners_deque = dict()
 
         # TODO this does not work, can we fix it?
         # self.tello.set_video_direction(djitellopy.Tello.CAMERA_FORWARD)
@@ -264,8 +261,15 @@ class Tello:
         img = draw_text(img, f"temp={temp}", (10, 210), temp_color)
 
         # Draw markers
+        # TODO averaging of markers positions -> this should help
+        # dealing with noisy positions estimates
+        #
+        # 1. Average corners
+
         if self.draw_marker_axes:
-            ret = get_marker_from_image(img, self.camera_params)
+            ret = get_marker_from_image(
+                img, self.camera_params, self.marker_id_to_corners_deque
+            )
             if ret:
                 corners, ids, rvecs, tvecs = ret
                 cv2.aruco.drawDetectedMarkers(img, corners, ids)

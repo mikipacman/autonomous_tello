@@ -113,19 +113,47 @@ def get_calibration_parameters(path_to_images):
     return ret, mtx, dist, rvecs, tvecs, mapx, mapy, new_camera_mat, roi
 
 
-def get_marker_from_image(img, params):
+def get_marker_from_image(img, params, marker_dict):
+    # TODO this is to specific, move it to tello morelo class or make a new class for managing markers
+    # Make a "MarkerDetector" class and store ~500 recent marker corners, then give a method for estimateing
+    # pose from n most recent corners, that will increase the accuract of the estimate.
+    # Also move all cv2 params to this class and add support for markers with different sizes
     corners, ids, _ = cv2.aruco.detectMarkers(
         img, aruco_dictionary, None, None, aruco_detector_params
     )
     if ids is None:
         return None
     else:
-        assert len(ids) > 0
+        assert len(ids.shape) == 2 and ids.shape[1] == 1, ids
+        assert len(ids[:, 0]) == len(
+            set(ids[:, 0])
+        ), "There are some marker duplicates in the image!"
         _, _, dist, _, _, _, _, new_camera_mat, _ = params
+
+        corners = average_corners(corners, ids, marker_dict)
+
         rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
             corners, aruco_marker_side, new_camera_mat, dist
         )
         return corners, ids, rvecs, tvecs
+
+
+def average_corners(corners, ids, marker_dict):
+    assert len(corners) == 1 and ids.shape[1] == 1, [corners, ids]
+    ids = list(ids[:, 0])
+    corners = corners[0]
+
+    for c, i in zip(corners, ids):
+        if i not in marker_dict:
+            marker_dict[i] = collections.deque(maxlen=30)
+
+        marker_dict[i].append(c)
+
+    averaged_corners = [list(marker_dict[i]) for i in ids]
+    averaged_corners = np.array(averaged_corners)
+    averaged_corners = averaged_corners.mean(axis=1)
+
+    return (averaged_corners,)
 
 
 def undistort_img(img, params):
