@@ -6,10 +6,9 @@ import djitellopy
 import numpy as np
 from termcolor import cprint
 
-from lib.utils import (FPS, color_to_rgb, connect_or_exit, draw_text,
-                       get_calibration_parameters, get_marker_from_image,
-                       marker_coord_to_camera_coord, rvec_to_angle,
-                       undistort_img)
+from lib.image_processing import (ImageCalibrator, MarkerDetector,
+                                  marker_coord_to_camera_coord, rvec_to_angle)
+from lib.utils import FPS, color_to_rgb, connect_or_exit, draw_text
 
 # Set logging level
 # djitellopy.Tello.LOGGER.setLevel(logging.WARNING)
@@ -18,7 +17,7 @@ from lib.utils import (FPS, color_to_rgb, connect_or_exit, draw_text,
 class Tello:
     def __init__(
         self,
-        path_to_calibration_images=None,
+        path_to_calibration_images,
         init_velocity=50,
         wifi_name="TELLO-MORELO",
         password="twojastara",
@@ -33,26 +32,6 @@ class Tello:
         self.tello.streamoff()
         self.tello.streamon()
 
-        # CV2 windows
-        self.cv2_camera_window_name = "tello"
-        self.cv2_state_window_name = "state"
-        self.state_window_active = False
-
-        # Things for plotting state data
-        self.data_queue_capacity = 1000
-        self.data_queue = collections.deque(maxlen=self.data_queue_capacity)
-        self.rpy_names = ["roll", "pitch", "yaw"]
-        self.v_names = ["vgx", "vgy", "vgz"]
-        self.a_names = ["agx", "agy", "agz"]
-        self.h_names = ["tof", "h", "baro"]
-        self.other_names = ["templ", "temph", "bat", "time"]
-
-        # Things for plotting current image
-        self.fps_counter = FPS()
-        self.frame_count = 0
-        self.draw_marker_axes = True
-        self.display_points_dict = display_points_dict
-
         # Things for moving
         self.velocity = init_velocity
         self.left_right_velocity = 0
@@ -61,18 +40,37 @@ class Tello:
         self.yaw_velocity = 0
         self.is_flying = False
 
-        # Camera matrix
-        self.path_to_calibration_images = path_to_calibration_images
-        if self.path_to_calibration_images:
-            self.camera_params = get_calibration_parameters(path_to_calibration_images)
+        # CV2 windows
+        self.cv2_camera_window_name = "tello"
+        self.cv2_state_window_name = "state"
+        self.state_window_active = False
 
-        # Marker detection params
-        self.marker_id_to_corners_deque = dict()
+        # Things for plotting current image
+        self.fps_counter = FPS()
+        self.frame_count = 0
+        self.draw_marker_axes = True
+        self.display_points_dict = display_points_dict
+
+        # Things for plotting state data
+        self.rpy_names = ["roll", "pitch", "yaw"]
+        self.v_names = ["vgx", "vgy", "vgz"]
+        self.a_names = ["agx", "agy", "agz"]
+        self.h_names = ["tof", "h", "baro"]
+        self.other_names = ["templ", "temph", "bat", "time"]
+
+        # Image processing
+        self.image_calibrator = ImageCalibrator(path_to_calibration_images)
+        self.marker_detector = MarkerDetector(
+            camera_parameters=self.image_calibrator.get_camera_parameters()
+        )
+        self.averaged_over_n_frames = 1
 
         # TODO this does not work, can we fix it?
         # self.tello.set_video_direction(djitellopy.Tello.CAMERA_FORWARD)
         # self.tello.set_video_bitrate(djitellopy.Tello.BITRATE_1MBPS)
         # self.tello.set_video_fps(djitellopy.Tello.FPS_5)
+
+        # TODO add an option for plotting stats during manouvers
 
     def get_data(self, display=True, interactive=False):
         """Main function for reading drone's data. It also shows images seen by a drone
@@ -80,12 +78,12 @@ class Tello:
 
         frame_read = self.tello.get_frame_read()
         state = self.tello.get_current_state()
-        self.data_queue.append((frame_read, state))
         self.frame_count += 1
+        img = self.image_calibrator.undistort_img(frame_read.frame.copy())
+        self.marker_detector.add_image(img)
 
         if display:
             key = cv2.pollKey()
-            img = undistort_img(frame_read.frame.copy(), self.camera_params)
             img = self._img_to_display(img, key, state)
             cv2.imshow(self.cv2_camera_window_name, img)
             cv2.moveWindow(self.cv2_camera_window_name, 0, 0)
@@ -125,6 +123,7 @@ class Tello:
         cprint("EMERGENCY SHUTDOWN!", "red")
         self.__del__()
 
+    # TODO add sleep until tello finisheds manouver (its velocities are 0)
     def sleep(self, sec, interactive=False):
         """Actively sleep. It allows viewing drone's view while sleeping"""
 
@@ -135,17 +134,20 @@ class Tello:
     def find_any_markers(self, marker_ids, rotation):
         """Rotate until you find any of given markers, then center it and return its ID"""
 
+        # TODO consider other variants such as "centering marker" and not just aligining to it
+        # TODO make the movement cointinous by using send_rc_control(yaw_speed)
+        # TODO print stats after completing the manouver (current angle, (x, y, z) etc)
+
         assert rotation in ("clockwise", "anticlockwise")
         cmd = "cw" if rotation == "clockwise" else "ccw"
 
         while True:
-            img, _ = self.get_data()
-            ret = get_marker_from_image(img, self.camera_params)
+            self.get_data()
+            ret = self.marker_detector.detect_markers(averaged_over_n_frames=10)
             if ret:
-                corners, ids, rvecs, tvecs = ret
+                _, ids, rvecs, _ = ret
                 found = [m in ids for m in marker_ids]
                 if any(found):
-                    self.sleep(2)
                     marker_idx = marker_ids[found.index(True)]
                     angle = rvec_to_angle(rvecs[marker_idx])
                     cmd = "cw" if angle > 0 else "ccw"
@@ -154,6 +156,7 @@ class Tello:
                     return marker_idx
 
             self.tello.send_command_without_return(f"{cmd} 20")
+            self.sleep(0.5)
 
     def fly_to_point_in_camera_coord(self, point, velocity=None):
         """Fly to a point in camera coordinates system"""
@@ -166,13 +169,25 @@ class Tello:
         self.tello.go_xyz_speed(*point_in_tello_coord, velocity)
 
     def fly_to_point_in_marker_coord(
-        self, point, marker_id, velocity=None, num_tries=100
+        self,
+        point,
+        marker_id,
+        velocity=None,
+        num_tries=10,
+        position_averaged_over_n_frames=10,
     ):
         """Fly to a point in marker coordinates system"""
 
-        img, _ = self.get_data()
+        # TODO plot stats before and after manouer (xyz, distance from point etc)
+        # TODO use data["xspeed"] or tello.get_velocity to know when to the manouver is finished
+
+        for _ in range(position_averaged_over_n_frames):
+            self.get_data()
+
         for _ in range(num_tries):
-            ret = get_marker_from_image(img, self.camera_params)
+            ret = self.marker_detector.detect_markers(
+                averaged_over_n_frames=position_averaged_over_n_frames
+            )
             if ret:
                 _, ids, rvecs, tvecs = ret
                 assert marker_id in ids
@@ -181,6 +196,7 @@ class Tello:
                     point, rvecs[marker_idx], tvecs[marker_idx]
                 )
                 self.fly_to_point_in_camera_coord(camera_point[0], velocity)
+                self.sleep(5)
                 return
         raise Exception(f"Marker {marker_id} not found!")
 
@@ -222,6 +238,10 @@ class Tello:
             self.velocity = max(10, self.velocity - 1)
         elif key == ord("="):
             self.velocity = min(100, self.velocity + 1)
+        elif key == ord("_"):
+            self.averaged_over_n_frames = max(1, self.averaged_over_n_frames - 1)
+        elif key == ord("+"):
+            self.averaged_over_n_frames += 1
 
         # Change display
         elif key == ord("1"):
@@ -245,6 +265,7 @@ class Tello:
     def _img_to_display(self, img, key, state):
         # Constant part to display
         img = draw_text(img, f"FPS={int(self.fps_counter())}", (10, 30))
+        img = draw_text(img, f"anf={int(self.averaged_over_n_frames)}", (10, 60))
         img = draw_text(img, f"key={key}", (10, 90))
         img = draw_text(img, f"vel={self.velocity}", (10, 120))
         img = draw_text(img, f"time={state['time']}", (10, 150))
@@ -261,23 +282,25 @@ class Tello:
         img = draw_text(img, f"temp={temp}", (10, 210), temp_color)
 
         # Draw markers
-        # TODO averaging of markers positions -> this should help
-        # dealing with noisy positions estimates
-        #
-        # 1. Average corners
-
         if self.draw_marker_axes:
-            ret = get_marker_from_image(
-                img, self.camera_params, self.marker_id_to_corners_deque
+            ret = self.marker_detector.detect_markers(
+                averaged_over_n_frames=self.averaged_over_n_frames
             )
             if ret:
                 corners, ids, rvecs, tvecs = ret
                 cv2.aruco.drawDetectedMarkers(img, corners, ids)
-                _, _, dist, _, _, _, _, new_camera_mat, _ = self.camera_params
+                camera_params = self.image_calibrator.get_camera_parameters()
 
                 for rvec, tvec, marker_id in zip(rvecs, tvecs, ids):
                     marker_id = marker_id[0]
-                    cv2.aruco.drawAxis(img, new_camera_mat, dist, rvec, tvec, 0.1)
+                    cv2.aruco.drawAxis(
+                        img,
+                        camera_params["camera_mat"],
+                        camera_params["dist_coeffs"],
+                        rvec,
+                        tvec,
+                        0.1,
+                    )
 
                     # Draw points
                     rot_mat = cv2.Rodrigues(rvec)[0]
@@ -288,7 +311,9 @@ class Tello:
                         for point in self.display_points_dict[marker_id]:
                             points = self._get_points_for_x(point)
                             points_in_camera_coord = rot_mat @ points.T + tvec.T
-                            points_in_img = new_camera_mat @ points_in_camera_coord
+                            points_in_img = (
+                                camera_params["camera_mat"] @ points_in_camera_coord
+                            )
                             points_in_img /= points_in_img[2]
                             points_in_img = points_in_img[:2, :].astype(np.int64).T
                             img = self._draw_x(img, points_in_img)

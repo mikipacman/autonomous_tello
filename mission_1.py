@@ -3,32 +3,25 @@ from lib.tello_morelo import Tello
 # MISSION 1
 # The goal is to fly through a cardboard door that has aruco markers on
 
+# TODO
+
 
 def main():
+    points = [
+        (0.12 + 0.38 / 2, 0, 0),
+        (0.12 + 0.38 / 2, 0, 0.5),
+        (0.12 + 0.38 / 2, 0, -0.5),
+    ]
+
     tello = Tello(
         path_to_calibration_images="./images_for_calibration",
-        display_points_dict={
-            0: [
-                (0.1, 0.1, 0.1),
-                (0.05, 0.05, 0.05),
-                (0, 0, 0.5),
-            ]
-        },
+        display_points_dict={0: points},
     )
-
-    # usefull api funcs:
-    # set_speed()
-    # go_xyz_speed(self, x, y, z, speed)
-    # curve_xyz_speed(self, x1, y1, z1, x2, y2, z2, speed)
-    # rotate_clockwise(self, x)
-    # rotate_counter_clockwise(self, x)
-    # move(self, direction, x)
 
     tello.takeoff()
     found_marker = tello.find_any_markers([0], rotation="clockwise")
-    tello.sleep(1)
-    tello.fly_to_point_in_marker_coord((0, 0, 0.3), 0)
-    tello.sleep(5)
+    points[1][1] -= 0.1
+    tello.fly_to_point_in_marker_coord(points[1], 0, velocity=20)
     tello.land()
 
 

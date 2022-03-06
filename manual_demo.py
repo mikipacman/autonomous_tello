@@ -6,9 +6,10 @@ def main():
         path_to_calibration_images="./images_for_calibration",
         display_points_dict={
             0: [
-                (0.1, 0.1, 0.1),
-                (0.05, 0.05, 0.05),
-                (0, 0, 0.5),
+                # (0.1, 0.1, 0.1),
+                # (0.05, 0.05, 0.05),
+                # (0, 0, 0.5),
+                (0.12 + 0.38 / 2, 0, 0),
             ]
         },
     )
