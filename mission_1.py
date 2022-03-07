@@ -3,7 +3,10 @@ from lib.tello_morelo import Tello
 # MISSION 1
 # The goal is to fly through a cardboard door that has aruco markers on
 
-# TODO
+# TODO when stats in manouvers will be implemented check how a accurate they are
+# adn whether the center of tello's coordinate system is in camera's coordinate system
+
+# TODO check whether moving with fly_to_point_in_camera_coord() is reliable
 
 
 def main():
