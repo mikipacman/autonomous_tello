@@ -167,6 +167,7 @@ class Tello:
         point = np.array(point) * 100
         point_in_tello_coord = (int(point[2]), int(-point[0]), int(-point[1]))
         self.tello.go_xyz_speed(*point_in_tello_coord, velocity)
+        self.sleep(5)
 
     def fly_to_point_in_marker_coord(
         self,
@@ -196,7 +197,6 @@ class Tello:
                     point, rvecs[marker_idx], tvecs[marker_idx]
                 )
                 self.fly_to_point_in_camera_coord(camera_point[0], velocity)
-                self.sleep(5)
                 return
         raise Exception(f"Marker {marker_id} not found!")
 
