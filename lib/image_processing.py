@@ -24,8 +24,9 @@ class MarkerDetector:
             aruco_detector_params_corner_refinement_method
         )
 
-        self.marker_id_to_corners = {}
-        self.queue_max_len = queue_max_len
+        self.marker_id_to_corners = collections.defaultdict(
+            lambda: collections.deque(maxlen=queue_max_len)
+        )
         self.last_ids = None
 
     def add_image(self, img):
@@ -34,44 +35,40 @@ class MarkerDetector:
         )
 
         if ids is not None:
-            assert len(corners) == 1 and ids.shape[1] == 1, [corners, ids]
-            assert len(ids.shape) == 2 and ids.shape[1] == 1, ids
             assert len(ids[:, 0]) == len(
                 set(ids[:, 0])
             ), "There are some marker duplicates in the image!"
 
             ids = list(ids[:, 0])
+            corners = corners
             self.last_ids = ids
-            corners = corners[0]
 
-            # Update ids that are in the current img
-            for c, i in zip(corners, ids):
-                if i not in self.marker_id_to_corners:
-                    self.marker_id_to_corners[i] = collections.deque(
-                        maxlen=self.queue_max_len
-                    )
+            # Update ids
+            for i, c in zip(ids, corners):
+                self.marker_id_to_corners[i].append(c[0])
 
-                self.marker_id_to_corners[i].append(c)
+            for k in set(self.marker_id_to_corners.keys()) - set(ids):
+                self.marker_id_to_corners[k].append(None)
         else:
-            ids = []
-            self.last_ids = []
-
-        # Update ids that are NOT in the current img
-        for i in set(self.marker_id_to_corners.keys()) - set(ids):
-            if len(self.marker_id_to_corners[i]) == self.queue_max_len:
-                self.marker_id_to_corners[i].pop()
+            self.last_ids = None
 
     def detect_markers(self, averaged_over_n_frames=1):
-        assert self.last_ids is not None, "detect_markers() called before add_image()"
-        if len(self.last_ids) == 0:
+        if not self.last_ids:
             return None
 
+        # Get a slice
         averaged_corners = [
             list(self.marker_id_to_corners[i])[-averaged_over_n_frames:]
             for i in self.last_ids
         ]
-        averaged_corners = np.array(averaged_corners).mean(axis=1)
-        corners = (averaged_corners,)
+
+        # Remove None values
+        averaged_corners = [[c for c in l if c is not None] for l in averaged_corners]
+
+        # Average corners
+        corners = tuple(
+            [np.array(l).mean(axis=0)[np.newaxis, ...] for l in averaged_corners]
+        )
 
         # TODO support different aruco markers sizes at once
         rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
