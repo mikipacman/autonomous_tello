@@ -13,6 +13,20 @@ from lib.utils import FPS, color_to_rgb, connect_or_exit, draw_text
 # Set logging level
 djitellopy.Tello.LOGGER.setLevel(logging.WARNING)
 
+help_prompt = """
+Steering:
+  w       y
+a s d   g h j
+
+Takeoff/Land:           e
+Velocity:               -/+
+Averaged over n frames: shift and -/+
+Toggle state window:    1
+Toggle draw axis:       2
+Print help:             h
+Quit:                   q
+"""
+
 
 class Tello:
     def __init__(
@@ -260,6 +274,10 @@ class Tello:
         # Quit
         elif key == ord("q"):
             self.__del__()
+
+        # Help
+        elif key == ord("h"):
+            print(help_prompt)
 
         self.tello.send_rc_control(
             self.left_right_velocity,
