@@ -33,7 +33,9 @@ def main():
             ),
         },
     )
-    tello.sleep(int(1e10))
+
+    while True:
+        tello.get_data(interactive=True)
 
 
 if __name__ == "__main__":

@@ -15,8 +15,8 @@ djitellopy.Tello.LOGGER.setLevel(logging.WARNING)
 
 help_prompt = """
 Steering:
-  w       y
-a s d   g h j
+  w       i
+a s d   j k l  
 
 Takeoff/Land:           e
 Velocity:               -/+
@@ -229,13 +229,13 @@ class Tello:
         self.left_right_velocity = 0
 
         # Up down and angle
-        if key == ord("y"):
+        if key == ord("i"):
             self.for_back_velocity += self.velocity
-        elif key == ord("h"):
+        elif key == ord("k"):
             self.for_back_velocity -= self.velocity
-        elif key == ord("g"):
-            self.left_right_velocity -= self.velocity
         elif key == ord("j"):
+            self.left_right_velocity -= self.velocity
+        elif key == ord("l"):
             self.left_right_velocity += self.velocity
 
         # For back left right
