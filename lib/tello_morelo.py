@@ -1,4 +1,4 @@
-import collections
+import logging
 import time
 
 import cv2
@@ -6,22 +6,24 @@ import djitellopy
 import numpy as np
 from termcolor import cprint
 
-from lib.image_processing import (ImageCalibrator, MarkerDetector,
-                                  marker_coord_to_camera_coord, rvec_to_angle)
+from lib.image_processing import (CoordinateTranslator, ImageCalibrator,
+                                  MarkerDetector)
 from lib.utils import FPS, color_to_rgb, connect_or_exit, draw_text
 
 # Set logging level
-# djitellopy.Tello.LOGGER.setLevel(logging.WARNING)
+djitellopy.Tello.LOGGER.setLevel(logging.WARNING)
 
 
 class Tello:
     def __init__(
         self,
         path_to_calibration_images,
+        display_points_in_marker_coord,
+        display_points_in_global_coord,
+        marker_id_to_coordinate_change,
         init_velocity=50,
         wifi_name="TELLO-MORELO",
         password="twojastara",
-        display_points_dict=None,
     ):
         # Connect to tello
         connect_or_exit(wifi_name, password)
@@ -49,7 +51,8 @@ class Tello:
         self.fps_counter = FPS()
         self.frame_count = 0
         self.draw_marker_axes = True
-        self.display_points_dict = display_points_dict
+        self.display_points_in_marker_coord = display_points_in_marker_coord
+        self.display_points_in_global_coord = display_points_in_global_coord
 
         # Things for plotting state data
         self.rpy_names = ["roll", "pitch", "yaw"]
@@ -64,6 +67,10 @@ class Tello:
             camera_parameters=self.image_calibrator.get_camera_parameters()
         )
         self.averaged_over_n_frames = 1
+        self.coordinate_translator = CoordinateTranslator(
+            marker_id_to_coordinate_change=marker_id_to_coordinate_change,
+            camera_parameters=self.image_calibrator.get_camera_parameters(),
+        )
 
         # TODO this does not work, can we fix it?
         # self.tello.set_video_direction(djitellopy.Tello.CAMERA_FORWARD)
@@ -149,7 +156,7 @@ class Tello:
                 found = [m in ids for m in marker_ids]
                 if any(found):
                     marker_idx = marker_ids[found.index(True)]
-                    angle = rvec_to_angle(rvecs[marker_idx])
+                    angle = self.coordinate_translator.rvec_to_angle(rvecs[marker_idx])
                     cmd = "cw" if angle > 0 else "ccw"
                     self.tello.send_command_with_return(f"{cmd} {int(np.abs(angle))}")
                     self.sleep(2)
@@ -164,8 +171,7 @@ class Tello:
         if not velocity:
             velocity = self.velocity
 
-        point = np.array(point) * 100
-        point_in_tello_coord = (int(point[2]), int(-point[0]), int(-point[1]))
+        point_in_tello_coord = self.coordinate_translator.camera_to_tello(point)
         self.tello.go_xyz_speed(*point_in_tello_coord, velocity)
         self.sleep(5)
 
@@ -193,10 +199,10 @@ class Tello:
                 _, ids, rvecs, tvecs = ret
                 assert marker_id in ids
                 marker_idx = list(ids).index(marker_id)
-                camera_point = marker_coord_to_camera_coord(
+                camera_point = self.coordinate_translator.marker_to_camera(
                     point, rvecs[marker_idx], tvecs[marker_idx]
                 )
-                self.fly_to_point_in_camera_coord(camera_point[0], velocity)
+                self.fly_to_point_in_camera_coord(camera_point, velocity)
                 return
         raise Exception(f"Marker {marker_id} not found!")
 
@@ -302,25 +308,54 @@ class Tello:
                         0.1,
                     )
 
-                    # Draw points
-                    rot_mat = cv2.Rodrigues(rvec)[0]
-                    if (
-                        self.display_points_dict
-                        and marker_id in self.display_points_dict
-                    ):
-                        for point in self.display_points_dict[marker_id]:
+                    # Draw points in marker coordinates
+                    if marker_id in self.display_points_in_marker_coord:
+                        for point in self.display_points_in_marker_coord[marker_id]:
                             points = self._get_points_for_x(point)
-                            points_in_camera_coord = rot_mat @ points.T + tvec.T
-                            points_in_img = (
-                                camera_params["camera_mat"] @ points_in_camera_coord
+                            points = self.coordinate_translator.marker_to_camera(
+                                points, rvec, tvec
                             )
-                            points_in_img /= points_in_img[2]
-                            points_in_img = points_in_img[:2, :].astype(np.int64).T
-                            img = self._draw_x(img, points_in_img)
+                            points = self.coordinate_translator.camera_to_img(points)
+                            img = self._draw_x(img, points, color="white")
+
+                    # Draw points in global coordinates
+                    for point in self.display_points_in_global_coord:
+                        points = self._get_points_for_x(point)
+                        points = self.coordinate_translator.global_to_marker(
+                            points, marker_id
+                        )
+                        points = self.coordinate_translator.marker_to_camera(
+                            points, rvec, tvec
+                        )
+                        points = self.coordinate_translator.camera_to_img(points)
+                        img = self._draw_x(img, points, color="yellow")
+
+                # Draw averaged global points
+                for point in self.display_points_in_global_coord:
+                    points = self._get_points_for_x(point, size=0.02)
+                    points = self._global_points_from_detected_markers(
+                        points, ids, rvecs, tvecs
+                    )
+                    points = self.coordinate_translator.camera_to_img(points)
+                    img = self._draw_x(img, points, color="cyan", thickness=2)
         return img
 
-    def _get_points_for_x(self, center):
-        size = 0.01
+    def _global_points_from_detected_markers(self, points, ids, rvecs, tvecs):
+        camera_points = []
+
+        for marker_id, rvec, tvec in zip(ids, rvecs, tvecs):
+            points_translated = self.coordinate_translator.global_to_marker(
+                points, marker_id[0]
+            )
+            points_translated = self.coordinate_translator.marker_to_camera(
+                points_translated, rvec, tvec
+            )
+            camera_points.append(points_translated)
+
+        camera_points = np.array(camera_points).mean(axis=0)
+        return camera_points
+
+    def _get_points_for_x(self, center, size=0.01):
         arr = np.array([center] * 6, dtype=np.float32)
         arr[0, 0] += size
         arr[1, 0] -= size
@@ -331,11 +366,11 @@ class Tello:
 
         return arr
 
-    def _draw_x(self, img, x_points):
-        col = color_to_rgb["white"]
-        img = cv2.line(img, x_points[0], x_points[1], col, 1)
-        img = cv2.line(img, x_points[2], x_points[3], col, 1)
-        img = cv2.line(img, x_points[4], x_points[5], col, 1)
+    def _draw_x(self, img, x_points, color="white", thickness=1):
+        col = color_to_rgb[color]
+        img = cv2.line(img, x_points[0], x_points[1], col, thickness)
+        img = cv2.line(img, x_points[2], x_points[3], col, thickness)
+        img = cv2.line(img, x_points[4], x_points[5], col, thickness)
         return img
 
     def _state_to_display(self, state):

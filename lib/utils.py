@@ -60,6 +60,9 @@ color_to_rgb = {
     "blue": (255, 0, 0),
     "black": (0, 0, 0),
     "green": (0, 255, 0),
+    "yellow": (0, 255, 255),
+    "pink": (255, 0, 255),
+    "cyan": (255, 255, 0),
 }
 
 
@@ -74,3 +77,38 @@ def draw_text(img, text, pos, color="white"):
         2,
         cv2.LINE_AA,
     )
+
+
+# Decorators
+def assert_input_shapes(*shapes):
+    def dec(f):
+        def f_to_ret(*args):
+            assert len(args) == len(
+                shapes
+            ), f"Assert on shapes in {f.__name__} cannot be matched"
+            for i, (a, s) in enumerate(zip(args, shapes)):
+                if not s:
+                    continue
+                assert (
+                    a.shape == s
+                ), f"Shapes do not match in {f.__name__} for {i} argument"
+
+            return f(*args)
+
+        return f_to_ret
+
+    return dec
+
+
+def assert_output_shapes(shape):
+    def dec(f):
+        def f_to_ret(*args):
+            ret = f(*args)
+            assert (
+                ret.shape == shape
+            ), f"Shape of output do not match in {f.__name__}. The shape: {ret.shape}"
+            return ret
+
+        return f_to_ret
+
+    return dec

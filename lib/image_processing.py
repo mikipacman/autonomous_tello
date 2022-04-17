@@ -6,13 +6,15 @@ import cv2
 import numpy as np
 import scipy.spatial.transform
 
+from lib.utils import assert_input_shapes, assert_output_shapes
+
 
 class MarkerDetector:
     def __init__(
         self,
         camera_parameters,
         aruco_dictionary=cv2.aruco.DICT_4X4_50,
-        aruco_marker_id_to_size={"default": 0.064},
+        aruco_marker_id_to_size={"default": 0.059},
         aruco_detector_params_corner_refinement_method=cv2.aruco.CORNER_REFINE_CONTOUR,
         queue_max_len=100,
     ):
@@ -152,15 +154,52 @@ class ImageCalibrator:
         return dist, mapx, mapy, new_camera_mat, roi
 
 
-# Operations
+CoordinateChange = collections.namedtuple(
+    "CoordinateChange", ["translation", "rotation"]
+)
 
 
-def marker_coord_to_camera_coord(point, rvec, tvec):
-    rot_mat = cv2.Rodrigues(rvec)[0]
-    point = np.array(point)
-    return rot_mat @ point + tvec
+class CoordinateTranslator:
+    def __init__(self, marker_id_to_coordinate_change, camera_parameters):
+        self.marker_id_to_coordinate_change = marker_id_to_coordinate_change
+        for k, v in self.marker_id_to_coordinate_change.items():
+            self.marker_id_to_coordinate_change[k] = CoordinateChange(
+                rotation=v.rotation,
+                translation=np.array(v.translation, dtype=np.float32),
+            )
+        self.camera_parameters = camera_parameters
 
+    @assert_input_shapes(None, (6, 3), (1, 3), (1, 3))
+    @assert_output_shapes((6, 3))
+    def marker_to_camera(self, points, rvec, tvec):
+        rvec = np.array(rvec)
+        tvec = np.array(tvec)
+        points = np.array(points)
+        rot_mat = scipy.spatial.transform.Rotation.from_rotvec(rvec).as_matrix()[0]
+        return (rot_mat @ points.T + tvec.T).T
 
-def rvec_to_angle(rvec):
-    r = scipy.spatial.transform.Rotation.from_rotvec(rvec)
-    return r.as_euler("xyz", degrees=True)[0][1]
+    @assert_input_shapes(None, (6, 3), None)
+    @assert_output_shapes((6, 3))
+    def global_to_marker(self, points, target_marker_id):
+        coordinate_change = self.marker_id_to_coordinate_change[target_marker_id]
+        rot_mat = coordinate_change.rotation.inv().as_matrix()
+        a = (rot_mat @ (points - coordinate_change.translation).T).T
+        return a
+
+    @assert_input_shapes(None, (6, 3))
+    @assert_output_shapes((6, 3))
+    def camera_to_tello(self, points):
+        points = np.array(points) * 100
+        return [(int(p[2]), int(-p[0]), int(-p[1])) for p in points]
+
+    def rvec_to_angle(self, rvec):
+        r = scipy.spatial.transform.Rotation.from_rotvec(rvec)
+        return r.as_euler("xyz", degrees=True)[0][1]
+
+    @assert_input_shapes(None, (6, 3))
+    @assert_output_shapes((6, 2))
+    def camera_to_img(self, points):
+        points_in_img = self.camera_parameters["camera_mat"] @ points.T
+        points_in_img /= points_in_img[2]
+        points_in_img = points_in_img[:2, :].astype(np.int64).T
+        return points_in_img
