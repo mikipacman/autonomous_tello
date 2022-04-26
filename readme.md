@@ -13,6 +13,13 @@ Here is a visualization of what the drone sees and how it looks from third persp
 
 ![alt text](./gifs/tello_flying_through_gate.gif)
 
+## Mission 2
+Fly through and around a cardboard using multiple aruco markers and one
+global coordinate system.
+
+
+TODO: 3d visualization of where drone thinks it is in global coordinate system.
+
 # Future Ideas
 - SLAM
 - Monocular depth estimation
