@@ -7,8 +7,8 @@ from termcolor import cprint
 
 
 # Wifi
-def connect_to_wifi(name, password, num_retries=20):
-    cmd_refresh_list = "sudo iwlist wlp4s0 scan"
+def connect_to_wifi(name, password, num_retries=20, interface="wlp4s0"):
+    cmd_refresh_list = f"sudo iwlist {interface} scan"
     cmd_connect = "nmcli d wifi connect {} password {}".format(name, password)
 
     for i in range(num_retries):

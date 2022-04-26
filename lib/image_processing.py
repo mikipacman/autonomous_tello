@@ -26,7 +26,7 @@ class MarkerDetector:
             aruco_detector_params_corner_refinement_method
         )
 
-        self.marker_id_to_corners = collections.defaultdict(
+        self.marker_id_to_stuff = collections.defaultdict(
             lambda: collections.deque(maxlen=queue_max_len)
         )
         self.last_ids = None
@@ -37,49 +37,61 @@ class MarkerDetector:
         )
 
         if ids is not None:
-            assert len(ids[:, 0]) == len(
-                set(ids[:, 0])
-            ), "There are some marker duplicates in the image!"
+            if len(ids[:, 0]) != len(set(ids[:, 0])):
+                print(
+                    "There are some marker duplicates in the image! Skipping this frame"
+                )
+                return
 
             ids = list(ids[:, 0])
-            corners = corners
             self.last_ids = ids
 
-            # Update ids
-            for i, c in zip(ids, corners):
-                self.marker_id_to_corners[i].append(c[0])
+            # TODO support different aruco markers sizes at once
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+                corners,
+                self.aruco_marker_id_to_size["default"],
+                self.camera_parameters["camera_mat"],
+                self.camera_parameters["dist_coeffs"],
+            )
 
-            for k in set(self.marker_id_to_corners.keys()) - set(ids):
-                self.marker_id_to_corners[k].append(None)
+            # Update ids
+            for i, c, rvec, tvec in zip(ids, corners, rvecs, tvecs):
+                self.marker_id_to_stuff[i].append((c, rvec, tvec))
+            for k in set(self.marker_id_to_stuff.keys()) - set(ids):
+                self.marker_id_to_stuff[k].append(None)
         else:
             self.last_ids = None
 
     def detect_markers(self, averaged_over_n_frames=1):
         if not self.last_ids:
             return None
-
         # Get a slice
-        averaged_corners = [
-            list(self.marker_id_to_corners[i])[-averaged_over_n_frames:]
+        averaged_stuff = [
+            list(self.marker_id_to_stuff[i])[-averaged_over_n_frames:]
             for i in self.last_ids
         ]
 
         # Remove None values
-        averaged_corners = [[c for c in l if c is not None] for l in averaged_corners]
+        averaged_stuff = [[c for c in l if c is not None] for l in averaged_stuff]
 
         # Average corners
-        corners = tuple(
-            [np.array(l).mean(axis=0)[np.newaxis, ...] for l in averaged_corners]
-        )
+        corners = [[c[0] for c in l] for l in averaged_stuff]
+        rvecs = [[c[1] for c in l] for l in averaged_stuff]
+        tvecs = [[c[2] for c in l] for l in averaged_stuff]
 
-        # TODO support different aruco markers sizes at once
-        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+        # Take last
+        corners = tuple(np.array(l)[-1] for l in corners)
+        tvecs = tuple(np.array(l)[-1] for l in tvecs)
+
+        # Take median
+        rvecs = tuple(np.median(np.array(l), axis=0) for l in rvecs)
+
+        return (
             corners,
-            self.aruco_marker_id_to_size["default"],
-            self.camera_parameters["camera_mat"],
-            self.camera_parameters["dist_coeffs"],
+            np.array(self.last_ids)[..., np.newaxis],
+            np.array(rvecs),
+            np.array(tvecs),
         )
-        return corners, np.array(self.last_ids)[..., np.newaxis], rvecs, tvecs
 
 
 class ImageCalibrator:

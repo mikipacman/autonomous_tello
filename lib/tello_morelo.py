@@ -16,8 +16,9 @@ djitellopy.Tello.LOGGER.setLevel(logging.WARNING)
 help_prompt = """
 Steering:
   w       i
-a s d   j k l  
+a s d   j k l
 
+Emergency shutdown:     spacebar
 Takeoff/Land:           e
 Velocity:               -/+
 Averaged over n frames: shift and -/+
@@ -80,9 +81,9 @@ class Tello:
         self.marker_detector = MarkerDetector(
             camera_parameters=self.image_calibrator.get_camera_parameters()
         )
-        self.averaged_over_n_frames = 1
+        self.averaged_over_n_frames = 3
         self.coordinate_translator = CoordinateTranslator(
-            marker_id_to_coordinate_change=marker_id_to_coordinate_change,
+            marker_id_to_coordinate_change=marker_id_to_coordinate_change.id_to_marker_map,
             camera_parameters=self.image_calibrator.get_camera_parameters(),
         )
 
@@ -370,7 +371,7 @@ class Tello:
             )
             camera_points.append(points_translated)
 
-        camera_points = np.array(camera_points).mean(axis=0)
+        camera_points = np.median(np.array(camera_points), axis=0)
         return camera_points
 
     def _get_points_for_x(self, center, size=0.01):
